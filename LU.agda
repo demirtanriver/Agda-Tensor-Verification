@@ -159,3 +159,75 @@ test-lu = lu sample2x2
 -- Multiply L and U back together to check we get sample2x2 back
 test-lu-check : Ar (ι 2 ⊗ ι 2) Float
 test-lu-check = matmul (proj₁ test-lu) (proj₂ test-lu)
+
+-- A b x b block of numbers
+Block : ℕ → Set → Set
+Block b A = Ar (ι b ⊗ ι b) A
+
+-- Solve L * X = B where L is lower triangular
+trsm-L : {{_ : Num A}} → ∀ {n} → Ar (ι n ⊗ ι n) A → Ar (ι n ⊗ ι m) A
+       → Ar (ι n ⊗ ι m) A
+trsm-L {n = zero}  L B = zeroAr
+trsm-L {n = suc n} L B = unnest (cons x1 (nest X2))
+  where
+    l11 = topLeft L
+    l21 = leftCol L
+    L22 = botRight L
+    b1  = head (nest B)
+    B2  = unnest (tail (nest B))
+    x1  = (_/ l11) <$> b1
+    X2  = trsm-L L22 (B2 ⊟ outer l21 x1)
+
+-- Solve X * U = B where U is upper triangular
+trsm-U : {{_ : Num A}} → ∀ {n} → Ar (ι m ⊗ ι n) A → Ar (ι n ⊗ ι n) A
+       → Ar (ι m ⊗ ι n) A
+trsm-U B U = transpose (trsm-L (transpose U) (transpose B))
+
+-- Subtract two grids of blocks block-by-block
+_⊟grid_ : {{_ : Num A}} → Ar s (Block b A) → Ar s (Block b A) → Ar s (Block b A)
+X ⊟grid Y = _⊟_ <$> X <*> Y
+
+-- Outer product of a column of blocks and a row of blocks
+blockOuter : {{_ : Num A}} → Ar (ι m) (Block b A) → Ar (ι n) (Block b A)
+           → Ar (ι m ⊗ ι n) (Block b A)
+blockOuter u v (i ⊗ j) = matmul (u i) (v j)
+
+-- Multiply two grids of blocks
+gridMul : {{_ : Num A}} → Ar (ι m ⊗ ι k) (Block b A) → Ar (ι k ⊗ ι n) (Block b A)
+        → Ar (ι m ⊗ ι n) (Block b A)
+gridMul X Y (i ⊗ j) = fold _⊞_ zeroAr (λ r → matmul (X (i ⊗ r)) (Y (r ⊗ j)))
+
+-- Blocked LU on a k x k grid of b x b blocks
+lu-grid : {{_ : Num A}} → ∀ {k} → Ar (ι k ⊗ ι k) (Block b A)
+        → Ar (ι k ⊗ ι k) (Block b A) × Ar (ι k ⊗ ι k) (Block b A)
+lu-grid {k = zero}  M = pure zeroAr , pure zeroAr
+lu-grid {k = suc k} M =
+  joinMat L11 (pure zeroAr) L21 L22 , joinMat U11 U12 (pure zeroAr) U22
+  where
+    A11  = topLeft M
+    A12  = topRow M
+    A21  = leftCol M
+    A22  = botRight M
+    lu11 = lu A11
+    L11  = proj₁ lu11
+    U11  = proj₂ lu11
+    U12  = trsm-L L11 <$> A12
+    L21  = (λ blk → trsm-U blk U11) <$> A21
+    S22  = A22 ⊟grid blockOuter L21 U12
+    rec  = lu-grid S22
+    L22  = proj₁ rec
+    U22  = proj₂ rec
+
+-- Test 2x2 grid of 2x2 blocks
+sampleGrid : Ar (ι 2 ⊗ ι 2) (Block 2 Float)
+sampleGrid (ι zero       ⊗ ι zero)       = sample2x2
+sampleGrid (ι zero       ⊗ ι (suc zero)) = eye 2
+sampleGrid (ι (suc zero) ⊗ ι zero)       = eye 2
+sampleGrid (ι (suc zero) ⊗ ι (suc zero)) = sample2x2
+
+-- Run blocked LU on sampleGrid and multiply L and U back together
+test-grid-lu : Ar (ι 2 ⊗ ι 2) (Block 2 Float) × Ar (ι 2 ⊗ ι 2) (Block 2 Float)
+test-grid-lu = lu-grid sampleGrid
+
+test-grid-check : Ar (ι 2 ⊗ ι 2) (Block 2 Float)
+test-grid-check = gridMul (proj₁ test-grid-lu) (proj₂ test-grid-lu)
