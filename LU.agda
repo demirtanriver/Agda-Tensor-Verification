@@ -97,3 +97,65 @@ sample2x2 (ι (suc zero) ⊗ ι (suc zero)) = 7.0
 -- Check that multiplying by the identity matrix works
 test-mul : Ar (ι 2 ⊗ ι 2) Float
 test-mul = matmul sample2x2 (eye 2)
+
+
+-- Get the first item of a 1D array
+head : Ar (ι (suc n)) A → A
+head v = v (ι zero)
+
+-- Get everything except the first item of a 1D array
+tail : Ar (ι (suc n)) A → Ar (ι n) A
+tail v i = v (ιsuc i)
+
+-- Put a single item onto the front of a 1D array
+cons : A → Ar (ι n) A → Ar (ι (suc n)) A
+cons x xs (ι zero)    = x
+cons x xs (ι (suc i)) = xs (ι i)
+
+-- Multiply a column vector and a row vector into a 2D grid
+outer : {{_ : Num A}} → Ar (ι m) A → Ar (ι n) A → Ar (ι m ⊗ ι n) A
+outer u v (i ⊗ j) = u i * v j
+
+-- Grab the top-left corner number of a matrix
+topLeft : Ar (ι (suc m) ⊗ ι (suc n)) A → A
+topLeft M = head (head (nest M))
+
+-- Grab the rest of the first row
+topRow : Ar (ι (suc m) ⊗ ι (suc n)) A → Ar (ι n) A
+topRow M = tail (head (nest M))
+
+-- Grab the rest of the first column
+leftCol : Ar (ι (suc m) ⊗ ι (suc n)) A → Ar (ι m) A
+leftCol M = head <$> tail (nest M)
+
+-- Grab the remaining bottom-right submatrix
+botRight : Ar (ι (suc m) ⊗ ι (suc n)) A → Ar (ι m ⊗ ι n) A
+botRight M = unnest (tail <$> tail (nest M))
+
+-- Stick the 4 pieces back together into one matrix
+joinMat : A → Ar (ι n) A → Ar (ι m) A → Ar (ι m ⊗ ι n) A
+        → Ar (ι (suc m) ⊗ ι (suc n)) A
+joinMat a11 a12 a21 A22 =
+  unnest (cons (cons a11 a12) (cons <$> a21 <*> nest A22))
+
+-- Unblocked LU decomposition: splits an n x n matrix into (L , U)
+lu : {{_ : Num A}} → ∀ {n} → Ar (ι n ⊗ ι n) A
+   → Ar (ι n ⊗ ι n) A × Ar (ι n ⊗ ι n) A
+lu {n = zero}  M = zeroAr , zeroAr
+lu {n = suc n} M = joinMat 1# zeroAr l21 L22 , joinMat a11 u12 zeroAr U22
+  where
+    a11 = topLeft M
+    u12 = topRow M
+    l21 = (_/ a11) <$> leftCol M
+    M22 = botRight M ⊟ outer l21 u12
+    rec = lu M22
+    L22 = proj₁ rec
+    U22 = proj₂ rec
+
+-- Run unblocked LU on sample2x2
+test-lu : Ar (ι 2 ⊗ ι 2) Float × Ar (ι 2 ⊗ ι 2) Float
+test-lu = lu sample2x2
+
+-- Multiply L and U back together to check we get sample2x2 back
+test-lu-check : Ar (ι 2 ⊗ ι 2) Float
+test-lu-check = matmul (proj₁ test-lu) (proj₂ test-lu)
