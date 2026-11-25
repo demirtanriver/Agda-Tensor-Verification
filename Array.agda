@@ -8,7 +8,7 @@ open import Effect.Functor using (RawFunctor)
 open RawMonad {{...}} hiding (_⊗_)
 
 
-module _ where
+module Array where
 
 module ArOps where
   open import Data.Fin as Fin using (Fin; zero; suc) 
